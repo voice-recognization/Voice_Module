@@ -256,7 +256,7 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
   const [bitFlippedIndex, setBitFlippedIndex] = useState(null);
   const [hoveredBitIndex, setHoveredBitIndex] = useState(null);
   const [isHashCopied, setIsHashCopied] = useState(false);
-  const [matrixLayout, setMatrixLayout] = useState('long'); // 'long' | '32x8' | '16x16' | 'ribbon'
+  const [matrixLayout, setMatrixLayout] = useState('32x8'); // '32x8' | '16x16' | 'long' | 'ribbon'
   const [matrixDensity, setMatrixDensity] = useState('compact'); // 'mini' | 'compact' | 'normal'
   const [isMatrixCollapsed, setIsMatrixCollapsed] = useState(false);
 
@@ -1288,32 +1288,32 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
                       <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px] font-mono">
                         <button
                           type="button"
-                          onClick={() => setMatrixLayout('long')}
-                          className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${matrixLayout === 'long' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                          title="Long Format (32 Byte Rows with offset, hex & 8 individual bits)"
-                        >
-                          <span>Long Format</span>
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => setMatrixLayout('32x8')}
-                          className={`px-2 py-1 rounded-md transition ${matrixLayout === '32x8' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                          title="32 Columns × 8 Rows Grid"
+                          className={`px-2.5 py-1 rounded-md transition font-semibold ${matrixLayout === '32x8' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Compact 32 Columns × 8 Rows Grid (Default Short Format)"
                         >
-                          32×8
+                          32×8 Grid
                         </button>
                         <button
                           type="button"
                           onClick={() => setMatrixLayout('16x16')}
-                          className={`px-2 py-1 rounded-md transition ${matrixLayout === '16x16' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
-                          title="16 Columns × 16 Rows Square"
+                          className={`px-2.5 py-1 rounded-md transition font-semibold ${matrixLayout === '16x16' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="16 Columns × 16 Rows Square Grid"
                         >
                           16×16
                         </button>
                         <button
                           type="button"
+                          onClick={() => setMatrixLayout('long')}
+                          className={`px-2.5 py-1 rounded-md transition font-semibold ${matrixLayout === 'long' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Detailed Long Format (32 Byte Rows with offset, hex & ASCII)"
+                        >
+                          Long View
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => setMatrixLayout('ribbon')}
-                          className={`px-2 py-1 rounded-md transition ${matrixLayout === 'ribbon' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          className={`px-2.5 py-1 rounded-md transition font-semibold ${matrixLayout === 'ribbon' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
                           title="Continuous 1×256 Bitstream Ribbon"
                         >
                           Ribbon
