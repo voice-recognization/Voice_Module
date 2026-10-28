@@ -47,20 +47,33 @@ export default function VerificationPortal({ onVerifyHash, onNotify }) {
     }
   };
 
+  // Process audio file from drop or file input
+  const processAudioForVerification = async (file) => {
+    if (!file) return;
+    try {
+      setIsVerifying(true);
+      const sha256 = await computeAudioHash(file);
+      setSearchInput(sha256);
+      onNotify(`Computed fingerprint for "${file.name}": ${sha256.substring(0, 10)}...`, 'info');
+      await verifyHashQuery(sha256);
+    } catch (err) {
+      setIsVerifying(false);
+      onNotify('Could not compute cryptographic hash for the audio file.', 'error');
+    }
+  };
+
   // File Drop Handler for instant verification
   const handleFileDrop = async (e) => {
     e.preventDefault();
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const file = e.dataTransfer.files[0];
-      try {
-        setIsVerifying(true);
-        const sha256 = await computeAudioHash(file);
-        setSearchInput(sha256);
-        await verifyHashQuery(sha256);
-      } catch (err) {
-        setIsVerifying(false);
-        onNotify('Could not compute hash for dropped file.', 'error');
-      }
+      processAudioForVerification(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleFileInputChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      processAudioForVerification(e.target.files[0]);
+      e.target.value = '';
     }
   };
 
@@ -114,15 +127,23 @@ export default function VerificationPortal({ onVerifyHash, onNotify }) {
         </div>
 
         {/* Drop audio file trigger */}
-        <div
+        <label
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleFileDrop}
-          className="p-4 rounded-2xl border border-dashed border-slate-700/80 hover:border-cyan-500/50 bg-slate-950/40 text-center transition cursor-pointer"
+          htmlFor="verify-file-input"
+          className="block p-4 rounded-2xl border border-dashed border-slate-700/80 hover:border-cyan-500/50 bg-slate-950/40 hover:bg-slate-900/50 text-center transition cursor-pointer group"
         >
-          <span className="text-xs text-slate-400">
-            Or drag & drop any <strong>.wav / .mp3 file</strong> here to compute its SHA-256 fingerprint & query EVM on-chain state
+          <input
+            id="verify-file-input"
+            type="file"
+            accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.webm,audio/mpeg,audio/wav,audio/x-wav,audio/wave,audio/mp3"
+            onChange={handleFileInputChange}
+            className="hidden"
+          />
+          <span className="text-xs text-slate-300 group-hover:text-cyan-300 transition">
+            Click to browse or drag & drop any <strong className="text-cyan-400">.wav / .mp3 file</strong> here to compute its SHA-256 fingerprint & query EVM on-chain state
           </span>
-        </div>
+        </label>
 
         {/* Preset quick test buttons */}
         <div className="flex items-center gap-2 pt-2">

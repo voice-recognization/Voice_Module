@@ -20,10 +20,20 @@ export async function computeAudioHash(audioData) {
     arrayBuffer = encoder.encode(String(audioData)).buffer;
   }
 
-  const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hexHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
-  return "0x" + hexHash;
+  try {
+    if (typeof crypto !== 'undefined' && crypto.subtle && typeof crypto.subtle.digest === 'function') {
+      const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hexHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+      return "0x" + hexHash;
+    }
+  } catch (e) {
+    console.warn("crypto.subtle.digest failed, using ethers.sha256:", e);
+  }
+
+  // Pure JS fallback via ethers
+  const uint8 = new Uint8Array(arrayBuffer);
+  return ethers.sha256(uint8);
 }
 
 /**

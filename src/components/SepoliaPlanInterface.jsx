@@ -5,10 +5,11 @@ import {
   RotateCcw, Sparkles, Terminal, FileCode, Layers, Info, 
   Download, QrCode, Lock, CheckCircle, HelpCircle, Activity,
   Database, RefreshCw, Award, Eye, Volume2, VolumeX, Sliders,
-  Zap, Compass, PlayCircle, StopCircle, ArrowUpRight, Radio
+  Zap, Compass, PlayCircle, StopCircle, ArrowUpRight, Radio,
+  ChevronDown, Minimize2, Maximize2
 } from 'lucide-react';
 import { computeAudioHash, tamperAudioData } from '../utils/cryptoHasher';
-import { decodeAudioSource, analyzeAudioForensics } from '../utils/audioAnalyzer';
+import { decodeAudioSource, analyzeAudioForensics, getSharedAudioContext } from '../utils/audioAnalyzer';
 import { generateSyntheticDemoAudioBuffer } from '../utils/presetAudio';
 import { blockchainService } from '../utils/blockchain';
 import { soundEffects } from '../utils/soundEffects';
@@ -255,6 +256,9 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
   const [bitFlippedIndex, setBitFlippedIndex] = useState(null);
   const [hoveredBitIndex, setHoveredBitIndex] = useState(null);
   const [isHashCopied, setIsHashCopied] = useState(false);
+  const [matrixLayout, setMatrixLayout] = useState('long'); // 'long' | '32x8' | '16x16' | 'ribbon'
+  const [matrixDensity, setMatrixDensity] = useState('compact'); // 'mini' | 'compact' | 'normal'
+  const [isMatrixCollapsed, setIsMatrixCollapsed] = useState(false);
 
   // Step 3: AI Classifier State
   const [aiReport, setAiReport] = useState(null);
@@ -392,7 +396,7 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
 
     try {
       if (!audioBuffer) return;
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getSharedAudioContext() || new (window.AudioContext || window.webkitAudioContext)();
       const source = ctx.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.destination);
@@ -410,7 +414,7 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
         const elapsed = (Date.now() - startTime) / 1000;
         setCurrentTime(Math.min(elapsed, audioDuration));
       }, 100);
-    } catch (e) {
+    } catch {
       setIsPlaying(false);
     }
   };
@@ -498,9 +502,8 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
     onNotify?.(`Loaded: ${sample.name}`, 'info');
   };
 
-  // Upload custom user audio file
-  const handleFileUpload = async (e) => {
-    const file = e.target.files?.[0];
+  // Process any uploaded or drag-and-dropped audio file
+  const processAudioFile = async (file) => {
     if (!file) return;
 
     soundEffects.playClick();
@@ -508,28 +511,47 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
     setTamperType(null);
     setVerificationOutcome(null);
 
-    const ext = file.name.split('.').pop().toLowerCase();
-    const validExtensions = ['wav', 'mp3', 'm4a', 'ogg'];
-    if (!validExtensions.includes(ext) || file.size === 0 || file.size > 25 * 1024 * 1024) {
+    const fileName = file.name || 'audio_recording';
+    const ext = fileName.includes('.') ? fileName.split('.').pop().toLowerCase() : '';
+    const validExtensions = ['wav', 'mp3', 'm4a', 'ogg', 'flac', 'aac', 'webm', 'wma'];
+    const isAudioType = file.type ? file.type.startsWith('audio/') : false;
+    const isAudioExt = validExtensions.includes(ext);
+
+    if (!isAudioType && !isAudioExt && file.type !== '' && ext !== '') {
       soundEffects.playTamperAlert();
-      onNotify?.('Invalid file. Must be WAV/MP3 under 25MB.', 'error');
+      onNotify?.('Please upload a standard audio file (.wav, .mp3, .m4a, .ogg).', 'error');
+      return;
+    }
+
+    if (file.size === 0) {
+      soundEffects.playTamperAlert();
+      onNotify?.('Uploaded file is empty (0 bytes).', 'error');
+      return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+      soundEffects.playTamperAlert();
+      onNotify?.('File exceeds 50MB maximum size limit.', 'error');
       return;
     }
 
     try {
       const decoded = await decodeAudioSource(file);
-      setAudioBuffer(decoded.audioBuffer);
+      const safeBuffer = decoded.audioBuffer;
+      const duration = decoded.duration || 3.5;
+
+      setAudioBuffer(safeBuffer);
       setSelectedFile(file);
-      setAudioDuration(decoded.duration);
+      setAudioDuration(duration);
       setCurrentTime(0);
 
       setFileValidation({
         isValid: true,
-        format: file.type || `audio/${ext}`,
+        format: file.type || `audio/${ext || 'wav'}`,
         sizeFormatted: (file.size / (1024 * 1024)).toFixed(2) + ' MB',
-        durationFormatted: `${decoded.duration.toFixed(1)}s`,
-        sampleRate: decoded.sampleRate,
-        channels: decoded.channels,
+        durationFormatted: `${duration.toFixed(1)}s`,
+        sampleRate: decoded.sampleRate || 44100,
+        channels: decoded.channels || 1,
         statusText: 'Validation Passed: Valid audio stream decoded successfully.'
       });
 
@@ -540,7 +562,7 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
       setOriginalHex(cleanHex);
       triggerHashScrambleAnimation(cleanHex);
 
-      const forensics = analyzeAudioForensics(decoded.audioBuffer);
+      const forensics = analyzeAudioForensics(safeBuffer);
       const isSuspect = forensics.safetyScore < 60;
       const riskScore = Number((100 - forensics.safetyScore).toFixed(1));
 
@@ -555,11 +577,22 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
         phaseDispersion: isSuspect ? 'High (Neural vocoder artifacts)' : 'Low (Continuous acoustic phase)'
       });
 
-      onNotify?.(`Loaded and analyzed: ${file.name}`, 'success');
+      onNotify?.(`Loaded and analyzed: ${fileName}`, 'success');
       setCurrentStep(2);
     } catch (err) {
       soundEffects.playTamperAlert();
-      onNotify?.('Failed to decode audio file.', 'error');
+      onNotify?.(`Audio processing warning: ${err.message || 'Could not parse audio'}`, 'error');
+    }
+  };
+
+  // Upload custom user audio file input change handler
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processAudioFile(file);
+    }
+    if (e.target) {
+      e.target.value = '';
     }
   };
 
@@ -582,6 +615,19 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
       triggerHashScrambleAnimation(newHex);
       onNotify?.(`Bit #${bitIndex} inverted! SHA-256 Avalanche triggered.`, 'warning');
     } catch (e) {}
+  };
+
+  // Reset Avalanche Matrix to baseline untampered digest
+  const handleResetBaseline = () => {
+    soundEffects.playClick();
+    if (originalHex) {
+      setSha256Hex(originalHex);
+      setBytes32Hash(`0x${originalHex}`);
+    }
+    setIsTamperedSimulated(false);
+    setTamperType(null);
+    setBitFlippedIndex(null);
+    onNotify?.('Restored baseline untampered cryptographic hash.', 'info');
   };
 
   // Register Provenance on Sepolia Testnet
@@ -1011,14 +1057,26 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
                 </div>
 
                 {/* Upload Zone */}
-                <div className="relative border-2 border-dashed border-slate-700 hover:border-cyan-400/80 rounded-2xl p-8 text-center bg-slate-950/50 transition group">
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const file = e.dataTransfer?.files?.[0];
+                    if (file) processAudioFile(file);
+                  }}
+                  className="relative border-2 border-dashed border-slate-700 hover:border-cyan-400/80 rounded-2xl p-8 text-center bg-slate-950/50 transition group cursor-pointer"
+                >
                   <input
                     type="file"
-                    accept="audio/wav,audio/mp3,audio/mpeg"
+                    accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.webm,audio/mpeg,audio/wav,audio/x-wav,audio/wave,audio/mp3"
                     onChange={handleFileUpload}
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                   />
-                  <div className="space-y-3">
+                  <div className="space-y-3 pointer-events-none">
                     <div className="w-16 h-16 mx-auto rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center group-hover:scale-110 group-hover:border-cyan-400 transition-all shadow-lg shadow-cyan-500/10">
                       <FileAudio className="w-8 h-8 text-cyan-400" />
                     </div>
@@ -1027,7 +1085,7 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
                         Click or drag your voice recording here
                       </p>
                       <p className="text-xs text-slate-400 mt-1">
-                        Accepts <span className="text-cyan-300 font-mono font-bold">.wav</span> and <span className="text-cyan-300 font-mono font-bold">.mp3</span> (Up to 25 MB)
+                        Accepts <span className="text-cyan-300 font-mono font-bold">.wav</span>, <span className="text-cyan-300 font-mono font-bold">.mp3</span>, <span className="text-cyan-300 font-mono font-bold">.m4a</span>, <span className="text-cyan-300 font-mono font-bold">.ogg</span> (Up to 100 MB)
                       </p>
                     </div>
                   </div>
@@ -1179,83 +1237,376 @@ export default function SepoliaPlanInterface({ onNotify, walletInfo }) {
                 </div>
 
                 {/* INTERACTIVE 256-BIT AVALANCHE LAB */}
-                <div className="p-5 rounded-2xl bg-slate-950/80 border border-indigo-500/30 space-y-4">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/85 border border-indigo-500/30 space-y-3.5 shadow-xl shadow-indigo-950/30">
+                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
                     <div>
-                      <h4 className="text-sm font-bold text-white flex items-center gap-2">
+                      <div className="flex items-center gap-2">
                         <Zap className="w-4 h-4 text-amber-400" />
-                        <span>Interactive Cryptographic Avalanche Matrix</span>
-                      </h4>
-                      <p className="text-xs text-slate-400">
-                        Click any bit or trigger a flip to observe the cryptographic avalanche cascade.
+                        <h4 className="text-sm font-bold text-white">
+                          Interactive Cryptographic Avalanche Matrix
+                        </h4>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-indigo-500/15 text-indigo-300 border border-indigo-500/30">
+                          256 Bits
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Invert any bit to trigger the SHA-256 cascade (Strict Avalanche Criterion ~50% bit diffusion).
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    {/* View Controls & Action Buttons */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Density Selector */}
+                      <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px] font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setMatrixDensity('mini')}
+                          className={`px-2 py-1 rounded-md transition ${matrixDensity === 'mini' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Ultra-compact micro chips"
+                        >
+                          Mini
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMatrixDensity('compact')}
+                          className={`px-2 py-1 rounded-md transition ${matrixDensity === 'compact' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Compact clean matrix (Default)"
+                        >
+                          Compact
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMatrixDensity('normal')}
+                          className={`px-2 py-1 rounded-md transition ${matrixDensity === 'normal' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Standard sized badges"
+                        >
+                          Normal
+                        </button>
+                      </div>
+
+                      {/* Grid Layout Selector */}
+                      <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px] font-mono">
+                        <button
+                          type="button"
+                          onClick={() => setMatrixLayout('long')}
+                          className={`px-2.5 py-1 rounded-md transition flex items-center gap-1 ${matrixLayout === 'long' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Long Format (32 Byte Rows with offset, hex & 8 individual bits)"
+                        >
+                          <span>Long Format</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMatrixLayout('32x8')}
+                          className={`px-2 py-1 rounded-md transition ${matrixLayout === '32x8' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="32 Columns × 8 Rows Grid"
+                        >
+                          32×8
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMatrixLayout('16x16')}
+                          className={`px-2 py-1 rounded-md transition ${matrixLayout === '16x16' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="16 Columns × 16 Rows Square"
+                        >
+                          16×16
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMatrixLayout('ribbon')}
+                          className={`px-2 py-1 rounded-md transition ${matrixLayout === 'ribbon' ? 'bg-cyan-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}
+                          title="Continuous 1×256 Bitstream Ribbon"
+                        >
+                          Ribbon
+                        </button>
+                      </div>
+
+                      {/* Actions */}
                       <button
+                        type="button"
                         onClick={() => handleFlipBit(Math.floor(Math.random() * 256))}
-                        className="px-3.5 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-mono transition transform hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                        className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-mono transition transform hover:scale-105 active:scale-95 flex items-center gap-1.5"
                       >
                         <Zap className="w-3.5 h-3.5 text-amber-400" />
-                        <span>⚡ Flip Random Bit</span>
+                        <span>⚡ Flip Bit</span>
+                      </button>
+
+                      {isTamperedSimulated && (
+                        <button
+                          type="button"
+                          onClick={handleResetBaseline}
+                          className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-mono transition transform hover:scale-105 active:scale-95 flex items-center gap-1.5"
+                          title="Restore untampered baseline hash"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Reset</span>
+                        </button>
+                      )}
+
+                      {/* Collapse/Expand Toggle */}
+                      <button
+                        type="button"
+                        onClick={() => setIsMatrixCollapsed(!isMatrixCollapsed)}
+                        className="px-2 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs transition"
+                        title={isMatrixCollapsed ? 'Expand 256-bit matrix' : 'Collapse matrix to compact summary'}
+                      >
+                        {isMatrixCollapsed ? (
+                          <div className="flex items-center gap-1">
+                            <Maximize2 className="w-3.5 h-3.5 text-indigo-300" />
+                            <span className="hidden sm:inline text-[11px]">Expand</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1">
+                            <Minimize2 className="w-3.5 h-3.5 text-slate-400" />
+                            <span className="hidden sm:inline text-[11px]">Collapse</span>
+                          </div>
+                        )}
                       </button>
                     </div>
                   </div>
 
-                  {/* 256-Bit Glowing Matrix (32 columns x 8 rows) */}
-                  <div className="bg-slate-900/90 p-4 rounded-xl border border-slate-800 space-y-2">
-                    <div className="grid grid-cols-16 sm:grid-cols-32 gap-1 overflow-x-auto py-1">
-                      {Array.from({ length: 256 }).map((_, idx) => {
-                        const hexCharIndex = Math.floor(idx / 4);
-                        const bitInChar = 3 - (idx % 4);
-                        const hexVal = parseInt(sha256Hex[hexCharIndex] || '0', 16);
-                        const bit = (hexVal >> bitInChar) & 1;
+                  {/* COLLAPSED MINI STATUS BAR */}
+                  {isMatrixCollapsed ? (
+                    <div className="bg-slate-900/90 p-3 rounded-xl border border-slate-800 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs font-mono">
+                      <div className="flex items-center gap-2.5">
+                        <div className={`w-2.5 h-2.5 rounded-full ${isTamperedSimulated ? 'bg-rose-500 animate-ping' : 'bg-emerald-400'}`} />
+                        <span className="text-slate-300 font-semibold">
+                          {isTamperedSimulated
+                            ? `Avalanche Active: ${getFlippedBitsCount()}/256 bits inverted (${((getFlippedBitsCount() / 256) * 100).toFixed(1)}%)`
+                            : 'Baseline Digest Active: 256/256 bits untampered'}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setIsMatrixCollapsed(false)}
+                          className="text-cyan-400 hover:text-cyan-300 text-xs flex items-center gap-1 underline underline-offset-2"
+                        >
+                          <span>Show full 256-bit matrix</span>
+                          <ChevronDown className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* EXPANDED 256-BIT MATRIX */
+                    <div className="bg-slate-900/90 p-3 sm:p-4 rounded-xl border border-slate-800 space-y-3">
+                      {matrixLayout === 'long' ? (
+                        /* LONG FORMAT: 32 BYTE ROWS WITH OFFSET, HEX, ASCII, AND 8 INTERACTIVE BITS */
+                        <div className="space-y-2">
+                          <div className="text-[11px] font-mono text-slate-400 flex items-center justify-between pb-1 border-b border-slate-800/80">
+                            <span>Byte Offset & Hex (32 Bytes / 256 Bits)</span>
+                            <span>Bits 7 → 0 (Click any bit to flip)</span>
+                          </div>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-[460px] overflow-y-auto pr-1">
+                            {Array.from({ length: 32 }).map((_, byteIdx) => {
+                              const hexPair = sha256Hex.slice(byteIdx * 2, byteIdx * 2 + 2) || '00';
+                              const origHexPair = originalHex.slice(byteIdx * 2, byteIdx * 2 + 2) || '00';
+                              const byteFlipped = isTamperedSimulated && hexPair !== origHexPair;
+                              const byteVal = parseInt(hexPair, 16);
+                              const charRep = byteVal >= 32 && byteVal <= 126 ? String.fromCharCode(byteVal) : '·';
 
-                        const origHexVal = parseInt(originalHex[hexCharIndex] || '0', 16);
-                        const origBit = (origHexVal >> bitInChar) & 1;
-                        const isFlipped = isTamperedSimulated && bit !== origBit;
+                              return (
+                                <div
+                                  key={byteIdx}
+                                  className={`p-2.5 rounded-xl border font-mono transition-all flex items-center justify-between gap-2 ${
+                                    byteFlipped
+                                      ? 'bg-rose-950/30 border-rose-500/50 shadow-md shadow-rose-950/30'
+                                      : 'bg-slate-900/80 border-slate-800 hover:border-slate-700'
+                                  }`}
+                                >
+                                  {/* Byte Header & Hex Info */}
+                                  <div className="flex items-center gap-2 min-w-[120px]">
+                                    <span className="text-[10px] text-slate-500 bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">
+                                      0x{byteIdx.toString(16).padStart(2, '0').toUpperCase()}
+                                    </span>
+                                    <span className={`text-xs font-bold ${byteFlipped ? 'text-rose-400 font-extrabold' : 'text-cyan-300'}`}>
+                                      {hexPair}
+                                    </span>
+                                    <span className="text-[10px] text-slate-500" title={`ASCII: ${charRep}`}>
+                                      '{charRep}'
+                                    </span>
+                                  </div>
 
-                        return (
-                          <button
-                            key={idx}
-                            onMouseEnter={() => setHoveredBitIndex(idx)}
-                            onMouseLeave={() => setHoveredBitIndex(null)}
-                            onClick={() => handleFlipBit(idx)}
-                            className={`w-3.5 h-5 rounded-sm font-mono text-[9px] flex items-center justify-center transition-all ${
-                              isFlipped
-                                ? 'bg-rose-500 text-white font-bold animate-pulse'
-                                : bit === 1
-                                ? 'bg-cyan-500/30 text-cyan-300 border border-cyan-500/40'
-                                : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
-                            }`}
+                                  {/* 8 Individual Interactive Bits */}
+                                  <div className="flex items-center gap-1">
+                                    {Array.from({ length: 8 }).map((_, bitInByte) => {
+                                      const globalBitIdx = byteIdx * 8 + bitInByte;
+                                      const hexCharIndex = Math.floor(globalBitIdx / 4);
+                                      const bitInChar = 3 - (globalBitIdx % 4);
+                                      const hexVal = parseInt(sha256Hex[hexCharIndex] || '0', 16);
+                                      const bit = (hexVal >> bitInChar) & 1;
+
+                                      const origHexVal = parseInt(originalHex[hexCharIndex] || '0', 16);
+                                      const origBit = (origHexVal >> bitInChar) & 1;
+                                      const isFlipped = isTamperedSimulated && bit !== origBit;
+
+                                      return (
+                                        <button
+                                          key={globalBitIdx}
+                                          type="button"
+                                          onMouseEnter={() => setHoveredBitIndex(globalBitIdx)}
+                                          onMouseLeave={() => setHoveredBitIndex(null)}
+                                          onClick={() => handleFlipBit(globalBitIdx)}
+                                          title={`Bit #${globalBitIdx} (Byte ${byteIdx}, Bit ${7 - bitInByte}) = ${bit}${isFlipped ? ' [INVERTED]' : ''}`}
+                                          className={`w-5 h-6 text-[10px] rounded font-medium flex items-center justify-center transition-all cursor-pointer ${
+                                            isFlipped
+                                              ? 'bg-rose-500 text-white font-bold ring-1 ring-rose-400 animate-pulse shadow-sm shadow-rose-500/50'
+                                              : bit === 1
+                                              ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/40'
+                                              : 'bg-slate-800 text-slate-500 hover:bg-slate-700 hover:text-slate-300 border border-slate-800'
+                                          }`}
+                                        >
+                                          {bit}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : matrixLayout === 'ribbon' ? (
+                        /* 1-ROW CONTINUOUS BITSTREAM RIBBON */
+                        <div className="overflow-x-auto pb-2">
+                          <div className="flex items-center gap-1 min-w-[1300px] p-3 bg-slate-950/80 rounded-xl border border-slate-800">
+                            {Array.from({ length: 256 }).map((_, idx) => {
+                              const hexCharIndex = Math.floor(idx / 4);
+                              const bitInChar = 3 - (idx % 4);
+                              const hexVal = parseInt(sha256Hex[hexCharIndex] || '0', 16);
+                              const bit = (hexVal >> bitInChar) & 1;
+                              const origHexVal = parseInt(originalHex[hexCharIndex] || '0', 16);
+                              const origBit = (origHexVal >> bitInChar) & 1;
+                              const isFlipped = isTamperedSimulated && bit !== origBit;
+                              const isByteBoundary = idx > 0 && idx % 8 === 0;
+
+                              return (
+                                <React.Fragment key={idx}>
+                                  {isByteBoundary && (
+                                    <div className="h-5 w-[1px] bg-indigo-500/50 mx-0.5 flex-shrink-0" title={`Byte 0x${(idx / 8).toString(16).padStart(2, '0')}`} />
+                                  )}
+                                  <button
+                                    key={idx}
+                                    type="button"
+                                    onMouseEnter={() => setHoveredBitIndex(idx)}
+                                    onMouseLeave={() => setHoveredBitIndex(null)}
+                                    onClick={() => handleFlipBit(idx)}
+                                    title={`Bit #${idx} = ${bit}${isFlipped ? ' [INVERTED]' : ''}`}
+                                    className={`w-4 h-6 text-[9px] font-mono rounded flex-shrink-0 flex items-center justify-center transition-all ${
+                                      isFlipped
+                                        ? 'bg-rose-500 text-white font-bold ring-1 ring-rose-400 animate-pulse'
+                                        : bit === 1
+                                        ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40'
+                                        : 'bg-slate-800 text-slate-500 hover:bg-slate-700 border border-slate-800'
+                                    }`}
+                                  >
+                                    {bit}
+                                  </button>
+                                </React.Fragment>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : (
+                        /* 32x8 OR 16x16 GRID */
+                        <div className="overflow-x-auto pb-1">
+                          <div
+                            className="min-w-[420px] sm:min-w-0"
+                            style={{
+                              display: 'grid',
+                              gridTemplateColumns: `repeat(${matrixLayout === '16x16' ? 16 : 32}, minmax(0, 1fr))`,
+                              gap: matrixDensity === 'mini' ? '2px' : matrixDensity === 'compact' ? '3px' : '4px'
+                            }}
                           >
-                            {bit}
-                          </button>
-                        );
-                      })}
-                    </div>
+                            {Array.from({ length: 256 }).map((_, idx) => {
+                              const hexCharIndex = Math.floor(idx / 4);
+                              const bitInChar = 3 - (idx % 4);
+                              const hexVal = parseInt(sha256Hex[hexCharIndex] || '0', 16);
+                              const bit = (hexVal >> bitInChar) & 1;
 
-                    <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pt-2 border-t border-slate-800">
-                      <div>
-                        {hoveredBitIndex !== null ? (
-                          <span className="text-cyan-300">
-                            Hovered: Bit #{hoveredBitIndex} (Byte {Math.floor(hoveredBitIndex / 8)})
+                              const origHexVal = parseInt(originalHex[hexCharIndex] || '0', 16);
+                              const origBit = (origHexVal >> bitInChar) & 1;
+                              const isFlipped = isTamperedSimulated && bit !== origBit;
+
+                              const heightClass =
+                                matrixDensity === 'mini'
+                                  ? 'h-3.5 sm:h-4 text-[7px] sm:text-[8px] rounded-[2px]'
+                                  : matrixDensity === 'compact'
+                                  ? 'h-4.5 sm:h-5 text-[8.5px] sm:text-[9.5px] rounded-sm'
+                                  : 'h-6 sm:h-7 text-[10px] sm:text-[11px] rounded';
+
+                              return (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  onMouseEnter={() => setHoveredBitIndex(idx)}
+                                  onMouseLeave={() => setHoveredBitIndex(null)}
+                                  onClick={() => handleFlipBit(idx)}
+                                  title={`Bit #${idx} (Byte ${Math.floor(idx / 8)}, Bit ${7 - (idx % 8)}) = ${bit}${isFlipped ? ' [INVERTED]' : ''}`}
+                                  className={`w-full font-mono font-medium flex items-center justify-center transition-all cursor-pointer select-none ${heightClass} ${
+                                    isFlipped
+                                      ? 'bg-rose-500 text-white font-bold ring-1 ring-rose-400 animate-pulse shadow-sm shadow-rose-500/50'
+                                      : bit === 1
+                                      ? 'bg-cyan-500/25 text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/40'
+                                      : 'bg-slate-800/80 text-slate-500 hover:bg-slate-700 hover:text-slate-300 border border-slate-800'
+                                  }`}
+                                >
+                                  {bit}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Avalanche Diffusion Progress Bar */}
+                      {isTamperedSimulated && (
+                        <div className="space-y-1 pt-1">
+                          <div className="flex items-center justify-between text-[10px] font-mono text-slate-400">
+                            <span className="text-rose-400 font-semibold">Diffusion Cascade Progress</span>
+                            <span>{getFlippedBitsCount()} / 256 bits ({((getFlippedBitsCount() / 256) * 100).toFixed(1)}%) • Target: ~50% (SAC)</span>
+                          </div>
+                          <div className="relative w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-amber-500 to-rose-500 transition-all duration-300"
+                              style={{ width: `${Math.min(100, (getFlippedBitsCount() / 256) * 100)}%` }}
+                            />
+                            {/* 50% strict avalanche marker */}
+                            <div className="absolute top-0 bottom-0 left-1/2 w-0.5 bg-cyan-400 z-10" title="50% Strict Avalanche Criterion Target" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Inspector & Legend Footer */}
+                      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-[11px] font-mono text-slate-400 pt-2 border-t border-slate-800">
+                        <div>
+                          {hoveredBitIndex !== null ? (
+                            <span className="text-cyan-300 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 inline-block" />
+                              <span>Bit #{hoveredBitIndex} (Byte {Math.floor(hoveredBitIndex / 8)}, Bit {7 - (hoveredBitIndex % 8)})</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">Hover over any bit to inspect address</span>
+                          )}
+                        </div>
+
+                        {/* Legend */}
+                        <div className="flex items-center gap-3 text-[10px]">
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-[2px] bg-cyan-500/30 border border-cyan-500/40 inline-block" />
+                            <span className="text-slate-400">1 (Set)</span>
                           </span>
-                        ) : (
-                          <span>Hover over any bit to inspect</span>
-                        )}
-                      </div>
-                      <div>
-                        {isTamperedSimulated ? (
-                          <span className="text-rose-400 font-bold">
-                            Avalanche Factor: {getFlippedBitsCount()} of 256 bits inverted ({((getFlippedBitsCount() / 256) * 100).toFixed(1)}%)
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-[2px] bg-slate-800 border border-slate-700 inline-block" />
+                            <span className="text-slate-400">0 (Unset)</span>
                           </span>
-                        ) : (
-                          <span className="text-emerald-400">Untampered Baseline Digest</span>
-                        )}
+                          <span className="flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded-[2px] bg-rose-500 inline-block" />
+                            <span className="text-rose-300 font-bold">Inverted</span>
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 {/* Navigation Buttons */}

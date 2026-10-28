@@ -345,8 +345,11 @@ export default function VoiceStudio({ onRegisterProof, onNotify, walletInfo }) {
             >
               <input
                 type="file"
-                accept="audio/*"
-                onChange={(e) => e.target.files[0] && processUploadedAudio(e.target.files[0])}
+                accept="audio/*,.mp3,.wav,.ogg,.m4a,.flac,.aac,.webm,audio/mpeg,audio/wav,audio/x-wav,audio/wave,audio/mp3"
+                onChange={(e) => {
+                  if (e.target.files?.[0]) processUploadedAudio(e.target.files[0]);
+                  e.target.value = '';
+                }}
                 className="hidden"
                 id="voice-file-upload"
               />

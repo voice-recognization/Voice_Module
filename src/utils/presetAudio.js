@@ -94,11 +94,31 @@ export const INITIAL_SPEAKER_PROFILES = [
  * Generates an AudioBuffer in memory for testing synthesizer playback
  */
 export function generateSyntheticDemoAudioBuffer(isAuthentic = true) {
-  const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const sampleRate = audioCtx.sampleRate;
+  const sampleRate = 44100;
   const duration = 3.0; // 3 seconds
   const frameCount = sampleRate * duration;
-  const myArrayBuffer = audioCtx.createBuffer(1, frameCount, sampleRate);
+  
+  let myArrayBuffer;
+  if (typeof window !== 'undefined') {
+    const OfflineCtxClass = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    if (OfflineCtxClass) {
+      try {
+        const offlineCtx = new OfflineCtxClass(1, frameCount, sampleRate);
+        myArrayBuffer = offlineCtx.createBuffer(1, frameCount, sampleRate);
+      } catch {}
+    }
+  }
+
+  if (!myArrayBuffer && typeof window !== 'undefined') {
+    const AudioCtxClass = window.AudioContext || window.webkitAudioContext;
+    if (AudioCtxClass) {
+      const audioCtx = new AudioCtxClass();
+      myArrayBuffer = audioCtx.createBuffer(1, frameCount, sampleRate);
+      audioCtx.close().catch(() => {});
+    }
+  }
+
+  if (!myArrayBuffer) return null;
   const channelData = myArrayBuffer.getChannelData(0);
 
   for (let i = 0; i < frameCount; i++) {

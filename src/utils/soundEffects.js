@@ -4,6 +4,24 @@
  */
 
 let isMuted = false;
+let sharedCtx = null;
+
+function getAudioContext() {
+  if (typeof window === 'undefined') return null;
+  try {
+    if (!sharedCtx || sharedCtx.state === 'closed') {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      sharedCtx = new AudioContextClass();
+    }
+    if (sharedCtx.state === 'suspended') {
+      sharedCtx.resume().catch(() => {});
+    }
+    return sharedCtx;
+  } catch {
+    return null;
+  }
+}
 
 export const soundEffects = {
   getIsMuted() {
@@ -23,7 +41,8 @@ export const soundEffects = {
   playClick() {
     if (isMuted) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -46,7 +65,8 @@ export const soundEffects = {
   playScan() {
     if (isMuted) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -69,7 +89,8 @@ export const soundEffects = {
   playBitFlip() {
     if (isMuted) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
 
@@ -92,7 +113,8 @@ export const soundEffects = {
   playSuccessChime() {
     if (isMuted) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
       
       notes.forEach((freq, i) => {
@@ -119,7 +141,8 @@ export const soundEffects = {
   playTamperAlert() {
     if (isMuted) return;
     try {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       const notes = [220, 311.13]; // A3, Eb4 (Tritone)
 
       notes.forEach(freq => {
